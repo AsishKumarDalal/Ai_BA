@@ -23,14 +23,20 @@
 | Phase | State |
 |---|---|
 | Phase 0 — research + plan | ✅ done (this document) |
-| Phase 1.1 — agentic loop | 🔶 scaffolded (providers, config, events, budget written; loop pending) |
-| Phase 1.2 — tools (v0: `run_sql`, `add_panel`) | ⬜ not started |
-| Phase 1.3 — context compression | ⬜ not started |
-| Phase 1.4 — SQLite session store | 🔶 scaffolded (`state/store.py` + schema written) |
-| Phase 1.5 — security & guardrails | 🔶 scaffolded (`safety/policy.py` written; AST guard pending) |
+| Phase 1.1 — agentic loop | ✅ done — providers, loop, budget, events, prompt builder, registry |
+| Phase 1.2 — tools (v0: `run_sql`, `add_panel`) | ✅ done — DB layer, catalog, chart IR, result handles |
+| Phase 1.3 — context compression | ✅ done — 4-phase compressor, usage anchor, boundaries |
+| Phase 1.4 — SQLite session store | ✅ done — sessions, FTS5, artifacts, hash-chained audit |
+| Phase 1.5 — security & guardrails | ✅ done — AST guard, PII masking, approval, injection defence |
+| Phase 1.6 — CLI | ✅ done — `tsql doctor/chat/ask/schema/sessions/artifacts/audit` |
 | Phase 2 — `ui/` | ⬜ not started |
 
+**288 tests passing.** The harness builds a two-panel dashboard end to end from a
+scripted model against a real database.
+
 **Blocked on:** the OpenAI-compatible endpoint details — see [§1.4](#14-model-provider--endpoint-configuration--operator-supplied).
+The endpoint config is read from the environment or a config file, so it can be
+supplied at any time without a code change.
 
 ### Git workflow
 
@@ -347,14 +353,18 @@ text_sql/
 │   │   │   ├── sql_guard.py    # sqlglot AST validation — ★ safety core
 │   │   │   ├── policy.py       # Policy dataclasses, allowlists, role entitlements
 │   │   │   ├── pii.py          # Column/row PII detection + masking
+│   │   │   ├── injection.py    # Untrusted-content detection (defence in depth)
 │   │   │   └── audit.py        # Hash-chained audit log
 │   │   ├── charts/
 │   │   │   ├── __init__.py
 │   │   │   └── spec.py         # ChartSpec IR + validation
+│   │   ├── harness.py          # One-call wiring: db + catalog + policy + agent
 │   │   └── server/
 │   │       ├── __init__.py
 │   │       └── api.py          # Minimal HTTP/SSE API (used by ui/ in Phase 2)
-│   └── tests/
+│   ├── examples/
+│   │   └── make_demo_db.py     # A demo sales database to try it against
+│   └── tests/                  # 288 tests
 │       ├── conftest.py
 │       ├── test_loop.py
 │       ├── test_registry.py
@@ -362,7 +372,8 @@ text_sql/
 │       ├── test_store.py
 │       ├── test_guard.py
 │       ├── test_pii.py
-│       └── test_charts.py
+│       ├── test_charts.py
+│       └── test_end_to_end.py
 └── ui/                         # Phase 2 — React + TS web client (scaffolded in Phase 1)
     └── (created in Phase 2)
 ```
