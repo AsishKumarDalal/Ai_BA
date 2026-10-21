@@ -330,6 +330,39 @@ def cmd_audit(args: argparse.Namespace) -> int:
     return 0 if verification["valid"] else 1
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    config = _load_config(args)
+    from .server.api import AnalystServer
+
+    ui_dir = args.ui_dir or _default_ui_dir()
+    with AnalystHarness.create(config, approval_callback=_approval_callback) as harness:
+        server = AnalystServer(harness, host=args.host, port=args.port, ui_dir=ui_dir)
+        try:
+            server.serve_forever()
+        finally:
+            harness.close()
+    return 0
+
+
+def _default_ui_dir() -> str | None:
+    """The built UI, if it has been built.
+
+    The UI lives at the repository root (``ui/``), but a copy inside
+    ``harness/ui/`` is also accepted so the harness can be packaged alone.
+    """
+    from pathlib import Path
+
+    here = Path(__file__).resolve()
+    candidates = [
+        here.parents[3] / "ui" / "dist",   # <repo>/ui/dist
+        here.parents[2] / "ui" / "dist",   # <repo>/harness/ui/dist
+    ]
+    for candidate in candidates:
+        if (candidate / "index.html").exists():
+            return str(candidate)
+    return None
+
+
 # ---------------------------------------------------------------------- utils
 
 
@@ -383,6 +416,12 @@ def build_parser() -> argparse.ArgumentParser:
     audit = sub.add_parser("audit", help="show and verify the audit chain")
     audit.add_argument("--limit", type=int, default=30)
     audit.set_defaults(func=cmd_audit)
+
+    serve = sub.add_parser("serve", help="serve the web UI and the agent API")
+    serve.add_argument("--host", default="127.0.0.1")
+    serve.add_argument("--port", type=int, default=8000)
+    serve.add_argument("--ui-dir", dest="ui_dir", help="the built ui directory")
+    serve.set_defaults(func=cmd_serve)
 
     return parser
 

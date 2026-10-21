@@ -59,6 +59,7 @@ node_modules/
 ui/dist/
 ui/build/
 ui/.vite/
+*.tsbuildinfo
 npm-debug.log*
 yarn-error.log*
 pnpm-debug.log*

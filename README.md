@@ -49,7 +49,18 @@ Then:
 ```bash
 tsql doctor    # verify the endpoint and the database connection
 tsql chat      # talk to the analyst
+tsql serve     # the web UI on http://127.0.0.1:8000
 ```
+
+### The web UI
+
+```bash
+cd ui && npm install && npm run build && cd ..
+tsql --db-path /tmp/demo.db serve
+```
+
+Without a model endpoint, `python harness/examples/run_demo_server.py` runs
+the harness with a scripted analyst so the UI can be tried offline.
 
 ## Safety
 

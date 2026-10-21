@@ -28,11 +28,13 @@
 | Phase 1.3 — context compression | ✅ done — 4-phase compressor, usage anchor, boundaries |
 | Phase 1.4 — SQLite session store | ✅ done — sessions, FTS5, artifacts, hash-chained audit |
 | Phase 1.5 — security & guardrails | ✅ done — AST guard, PII masking, approval, injection defence |
-| Phase 1.6 — CLI | ✅ done — `tsql doctor/chat/ask/schema/sessions/artifacts/audit` |
-| Phase 2 — `ui/` | ⬜ not started |
+| Phase 1.6 — CLI | ✅ done — `tsql doctor/chat/ask/schema/sessions/artifacts/audit/serve` |
+| Phase 2 — `ui/` | ✅ minimal working — chat + dashboard canvas, ChartSpec→Vega-Lite compiler |
+| Phase 3 — eval & red-team harness | ⬜ not started |
 
-**288 tests passing.** The harness builds a two-panel dashboard end to end from a
-scripted model against a real database.
+**296 harness tests + 14 UI tests passing.** The harness builds a three-panel
+dashboard end to end from a scripted model against a real database, and the UI
+renders it.
 
 **Blocked on:** the OpenAI-compatible endpoint details — see [§1.4](#14-model-provider--endpoint-configuration--operator-supplied).
 The endpoint config is read from the environment or a config file, so it can be
@@ -374,8 +376,20 @@ text_sql/
 │       ├── test_pii.py
 │       ├── test_charts.py
 │       └── test_end_to_end.py
-└── ui/                         # Phase 2 — React + TS web client (scaffolded in Phase 1)
-    └── (created in Phase 2)
+└── ui/                         # Phase 2 — the web client (React + TS)
+    ├── package.json
+    ├── vite.config.ts
+    ├── index.html
+    └── src/
+        ├── api.ts              # the harness API + the SSE client
+        ├── App.tsx             # the shell
+        ├── charts/
+        │   ├── compile.ts      # ChartSpec -> Vega-Lite  ★
+        │   └── compile.test.ts
+        └── components/
+            ├── ChatPanel.tsx
+            ├── ArtifactCanvas.tsx
+            └── ChartRenderer.tsx
 ```
 
 ---
