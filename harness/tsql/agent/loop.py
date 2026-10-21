@@ -78,6 +78,7 @@ class Agent:
         enabled_toolsets: list[str] | None = None,
         disabled_toolsets: list[str] | None = None,
         context_engine: Any = None,
+        catalog: Any = None,
     ):
         self.config = config
         self.provider = provider
@@ -88,6 +89,7 @@ class Agent:
         self.approval = approval
         self.session_id = session_id
         self.context_engine = context_engine
+        self._catalog = catalog
 
         self.emitter = EventEmitter([on_event] if on_event else [])
         self._executor = ToolExecutor(
@@ -192,6 +194,8 @@ class Agent:
                         approval=self.approval,
                         agent=self,
                     )
+                    if self._catalog is not None:
+                        ctx.extra["catalog"] = self._catalog
                     results = self._executor.execute(response.tool_calls, ctx)
 
                     for result in results:
@@ -248,10 +252,21 @@ class Agent:
 
     # -------------------------------------------------------------- internals
     def _tool_specs(self) -> list:
+        # The context is passed so a tool can declare a runtime requirement
+        # ("I need a live database connection") and be hidden when it is absent.
+        ctx = ToolContext(
+            task_id="",
+            session_id=self.session_id,
+            state=self.state,
+            db=self.db,
+            policy=self.policy,
+            approval=self.approval,
+        )
         return get_tool_definitions(
             enabled_toolsets=self._enabled_toolsets,
             disabled_toolsets=self._disabled_toolsets,
             registry=self.registry,
+            context=ctx,
         )
 
     def _prepare_history(self, conversation_history: list[dict] | None) -> list[dict]:

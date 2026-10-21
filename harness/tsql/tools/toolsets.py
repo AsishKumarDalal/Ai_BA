@@ -72,13 +72,15 @@ def get_tool_definitions(
     enabled_toolsets: Iterable[str] | None = None,
     disabled_toolsets: Iterable[str] | None = None,
     registry: ToolRegistry | None = None,
+    context: object | None = None,
 ) -> list:
     """Build the model-facing tool list.
 
     * ``enabled_toolsets`` may name toolsets *or* presets *or* bare tool names.
     * ``disabled_toolsets`` subtracts from everything known.
     * Tools whose ``check_fn`` fails are omitted entirely, so the model is
-      never offered a tool that cannot run.
+      never offered a tool that cannot run. A check that accepts a context
+      receives it, so a tool can require a live database connection.
     """
     registry = registry or default_registry
 
@@ -91,7 +93,7 @@ def get_tool_definitions(
                 wanted.update(resolve_preset(name, registry))
             else:
                 wanted.add(name)  # treat a bare name as a tool name
-        entries = [e for e in registry.available_entries() if e.name in wanted]
+        entries = [e for e in registry.available_entries(context) if e.name in wanted]
     elif disabled_toolsets is not None:
         excluded: set[str] = set()
         for name in disabled_toolsets:
@@ -101,8 +103,8 @@ def get_tool_definitions(
                 excluded.update(resolve_preset(name, registry))
             else:
                 excluded.add(name)
-        entries = [e for e in registry.available_entries() if e.name not in excluded]
+        entries = [e for e in registry.available_entries(context) if e.name not in excluded]
     else:
-        entries = registry.available_entries()
+        entries = registry.available_entries(context)
 
     return [entry.to_spec() for entry in entries]
