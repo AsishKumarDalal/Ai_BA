@@ -153,6 +153,8 @@ class CompressionConfig:
     protect_first_n: int = 3
     protect_last_n: int = 8
     min_tail_user_messages: int = 1
+    #: How many of the most recent tool results stay verbatim in the tail.
+    keep_recent_tool_results: int = 2
     #: Tail budget as a fraction of the context window, clamped by the bounds below.
     tail_ratio: float = 0.25
     tail_min_tokens: int = 10_000
