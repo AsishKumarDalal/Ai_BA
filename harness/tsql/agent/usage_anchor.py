@@ -70,6 +70,18 @@ class UsageAnchor:
             "context_length": self.context_length,
         }
 
+    def invalidate(self, messages: list[dict]) -> None:
+        """Re-base the anchor after the transcript was rewritten.
+
+        The provider's old count no longer describes the transcript, so it is
+        replaced with a rough estimate of the new one. The next provider
+        response re-anchors on real numbers.
+        """
+        self.prompt_tokens = estimate_message_tokens_all(messages)
+        self.completion_tokens = 0
+        self.delta_estimate = 0
+        self.last_fingerprint = fingerprint(messages[-1]) if messages else ""
+
     @classmethod
     def from_dict(cls, data: dict | None) -> "UsageAnchor":
         if not data:

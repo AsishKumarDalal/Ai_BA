@@ -314,7 +314,7 @@ class Agent:
             self.state.set_usage_anchor(self.session_id, self._anchor.to_dict())
 
     def _maybe_compress(self) -> None:
-        """Hook for the context engine (Phase 1.3). No-op until one is attached."""
+        """Compress the transcript when the context engine says it is needed."""
         engine = self.context_engine
         if engine is None:
             return
@@ -327,13 +327,21 @@ class Agent:
             return
         result = engine.compress(self._messages)
         self._messages = result.messages
+        # The provider's old count no longer describes the transcript.
+        self._anchor.invalidate(self._messages)
+        if self.state is not None and self.session_id:
+            try:
+                self.state.replace_messages(self.session_id, self._messages)
+            except Exception:  # noqa: BLE001 - persistence must not break the turn
+                pass
         self.emitter.emit(
             EventType.CONTEXT_COMPRESSION,
             messages_before=result.messages_before,
-            messages_after=len(result.messages),
+            messages_after=result.messages_after,
             tokens_before=result.tokens_before,
             tokens_after=result.tokens_after,
             method=result.method,
+            reason=getattr(decision, "reason", ""),
         )
 
     # ------------------------------------------------------------ persistence
