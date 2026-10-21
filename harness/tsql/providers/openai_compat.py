@@ -59,6 +59,10 @@ class OpenAICompatProvider(Provider):
         }
         if request.tools:
             payload["tools"] = [t.to_openai() for t in request.tools]
+        if self.config.reasoning_effort:
+            # Reasoning models accept an effort switch in the request body.
+            # The SDK has no first-class field for it, so it is merged in.
+            payload["extra_body"] = {"reasoning_effort": self.config.reasoning_effort}
 
         try:
             response = client.chat.completions.create(**payload)

@@ -214,8 +214,33 @@ class Agent:
                 self._messages.append(assistant)
                 self._persist_assistant(assistant)
                 final_text = assistant.get("content") or ""
-                if final_text.strip():
-                    self.emitter.emit(EventType.ASSISTANT_TEXT, text=final_text)
+
+                if not final_text.strip():
+                    # A reasoning model can spend its whole output budget
+                    # thinking and leave no answer. Say so rather than
+                    # returning an empty turn.
+                    if response.finish_reason == "length":
+                        message = (
+                            "the model used its whole output budget without producing an "
+                            "answer. Raise `max_tokens`, or set `reasoning_effort` to "
+                            '"none" if the endpoint supports it.'
+                        )
+                    else:
+                        message = "the model returned an empty response."
+                    self.emitter.emit(EventType.ERROR, message=message,
+                                      code="empty_response")
+                    return AgentResult(
+                        final_response="",
+                        messages=list(self._messages),
+                        iterations=self._budget.used,
+                        usage=self._usage,
+                        tool_calls=list(self._tool_call_log),
+                        stop_reason="empty_response",
+                        task_id=task_id,
+                        error=message,
+                    )
+
+                self.emitter.emit(EventType.ASSISTANT_TEXT, text=final_text)
                 return AgentResult(
                     final_response=final_text,
                     messages=list(self._messages),

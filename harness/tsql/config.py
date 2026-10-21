@@ -78,6 +78,10 @@ class ModelConfig:
     max_tokens: int = 4096
     temperature: float = 0.0
     timeout_seconds: float = 120.0
+    #: Extended-thinking effort for reasoning models: "none" | "low" | "medium" | "high".
+    #: "none" switches thinking off on recent Ollama builds, which is a large
+    #: saving when the model does not need to deliberate.
+    reasoning_effort: str | None = None
     extra_headers: dict[str, str] = field(default_factory=dict)
 
     def resolved_context_length(self) -> int:
@@ -255,6 +259,12 @@ class Config:
             self.model.api_mode = v
         if v := env.get("TSQL_CONTEXT_LENGTH"):
             self.model.context_length = int(v)
+        if v := env.get("TSQL_REASONING_EFFORT"):
+            self.model.reasoning_effort = v
+        if v := env.get("TSQL_TIMEOUT_SECONDS"):
+            self.model.timeout_seconds = float(v)
+        if v := env.get("TSQL_MAX_TOKENS"):
+            self.model.max_tokens = int(v)
         if v := env.get("TSQL_DB_DIALECT"):
             self.db.dialect = v
         if v := env.get("TSQL_DB_PATH"):
