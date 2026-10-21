@@ -42,6 +42,10 @@ class ToolEntry:
     is_async: bool = False
     description: str = ""
     emoji: str = ""
+    #: False when the tool mutates shared state and must not run alongside a
+    #: copy of itself. Two `add_panel` calls in one batch would otherwise race
+    #: to create the dashboard, and one panel would end up somewhere else.
+    parallel_safe: bool = True
 
     def to_spec(self) -> ToolSpec:
         parameters = self.schema.get("parameters") or {"type": "object", "properties": {}}
@@ -75,6 +79,7 @@ class ToolRegistry:
         description: str = "",
         emoji: str = "",
         override: bool = False,
+        parallel_safe: bool = True,
     ) -> ToolEntry:
         existing = self._tools.get(name)
         if existing is not None and existing.toolset != toolset and not override:
@@ -97,6 +102,7 @@ class ToolRegistry:
             is_async=is_async,
             description=description or schema.get("description", ""),
             emoji=emoji,
+            parallel_safe=parallel_safe,
         )
         self._tools[name] = entry
         return entry

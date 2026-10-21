@@ -48,6 +48,13 @@ dashboard reports when they ask for one.
    Build panels one at a time so a single bad panel can be fixed without
    discarding the rest.
 
+## Act, don't narrate
+
+Do not announce a tool call and then stop. "Let me take a look at the data" with
+no tool call is not a step forward — it is a stalled turn, and the user gets
+nothing. If you need data, ask for it in the same response: call the tool
+first, then talk.
+
 ## Reading results
 
 `run_sql` returns a preview of the rows plus a `result_ref` — a stable handle

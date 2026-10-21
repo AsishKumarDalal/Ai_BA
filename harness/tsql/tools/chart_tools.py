@@ -235,4 +235,8 @@ registry.register(
     handler=handle_add_panel,
     description="Add a chart panel to the dashboard.",
     emoji="📊",
+    # A panel is written into the session's dashboard. Two of these in one
+    # batch would race to create it, and one panel would land in a dashboard
+    # of its own. One at a time.
+    parallel_safe=False,
 )

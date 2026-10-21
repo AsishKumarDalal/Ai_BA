@@ -3,6 +3,7 @@ import type { Artifact, DashboardPayload, Panel, TablePayload } from "../api";
 import { api } from "../api";
 import { ChartRenderer } from "./ChartRenderer";
 import type { Row } from "../charts/compile";
+import { rowsAsObjects } from "../charts/rows";
 
 interface Props {
   artifacts: Artifact[];
@@ -108,13 +109,7 @@ function PanelCard({ panel }: { panel: Panel }) {
   }, [panel.data_ref]);
 
   const columns = result?.columns?.map((c) => c.name) ?? [];
-  const rows: Row[] = (result?.rows ?? []).map((row) => {
-    const object: Row = {};
-    columns.forEach((column, index) => {
-      object[column] = row[index];
-    });
-    return object;
-  });
+  const rows: Row[] = rowsAsObjects(columns, result?.rows ?? []);
 
   return (
     <article className="card">
@@ -152,13 +147,7 @@ function ChartCard({ artifact }: { artifact: Artifact }) {
   }, [spec.data_ref]);
 
   const columns = result?.columns?.map((c) => c.name) ?? [];
-  const rows: Row[] = (result?.rows ?? []).map((row) => {
-    const object: Row = {};
-    columns.forEach((column, index) => {
-      object[column] = row[index];
-    });
-    return object;
-  });
+  const rows: Row[] = rowsAsObjects(columns, result?.rows ?? []);
 
   return (
     <article className="card" style={{ marginBottom: 14 }}>
@@ -195,13 +184,7 @@ function TableCard({ artifact }: { artifact: Artifact }) {
 
   if (!result) return null;
   const columns = result.columns?.map((c) => c.name) ?? [];
-  const rows: Row[] = (result.rows ?? []).map((row) => {
-    const object: Row = {};
-    columns.forEach((column, index) => {
-      object[column] = row[index];
-    });
-    return object;
-  });
+  const rows: Row[] = rowsAsObjects(columns, result.rows ?? []);
 
   return (
     <article className="card" style={{ marginBottom: 14 }}>

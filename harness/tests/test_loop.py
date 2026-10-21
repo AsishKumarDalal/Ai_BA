@@ -328,3 +328,221 @@ def test_messages_are_persisted_to_the_state_store(tmp_path):
     stored = state.get_messages(session_id)
     assert [m["role"] for m in stored] == ["user", "assistant", "tool", "assistant"]
     state.close()
+
+
+# ------------------------------------------------------------ stalled turns
+def test_a_promise_without_a_tool_call_is_nudged_and_retried():
+    """A turn that only promises to look must not be the answer.
+
+    The model answered "Let me take a look at the data" and stopped. The user
+    saw a sentence and no work. The loop puts the promise back to the model.
+    """
+    provider = FakeProvider([
+        text_response("Let me take a quick look at the data so I can explain it."),
+        text_response("There are four tables: customers, products, orders, and a view."),
+    ])
+    agent = make_agent(provider)
+
+    events: list[tuple[str, dict]] = []
+    agent.emitter.add_listener(lambda e: events.append((e.type, e.data)))
+
+    result = agent.run_conversation("explain the data to me in simple")
+
+    assert result.final_response.startswith("There are four tables")
+    assert result.iterations == 2
+    assert any(t == "nudge" for t, _ in events)
+
+
+def test_the_nudge_tells_the_model_to_act():
+    provider = FakeProvider([
+        text_response("Let me take a quick look at the data."),
+        text_response("Done: 24 orders."),
+    ])
+    agent = make_agent(provider)
+    agent.run_conversation("explain the data")
+
+    follow_up = provider.requests[1].messages
+    last = follow_up[-1]
+    assert last["role"] == "user"
+    assert "Call the tool now" in last["content"]
+    assert "Let me take a quick look" not in last["content"]
+
+
+def test_the_promise_is_never_shown_to_the_user_as_the_answer():
+    provider = FakeProvider([
+        text_response("Let me take a quick look at the data."),
+        text_response("Done: 24 orders."),
+    ])
+    agent = make_agent(provider)
+
+    texts: list[str] = []
+    agent.emitter.add_listener(
+        lambda e: texts.append(e.data["text"]) if e.type == EventType.ASSISTANT_TEXT else None
+    )
+    result = agent.run_conversation("explain the data")
+
+    assert texts == ["Done: 24 orders."]
+
+
+def test_a_stalled_turn_is_reported_once_the_nudge_budget_is_spent():
+    provider = FakeProvider([
+        text_response("Let me take a look."),
+        text_response("Let me take a look."),
+        text_response("Let me take a look."),
+    ])
+    config = Config()
+    config.agent.max_nudges = 2
+    agent = make_agent(provider, config=config)
+
+    result = agent.run_conversation("explain the data")
+
+    assert result.stop_reason == "stalled_turn"
+    assert result.final_response == ""
+    assert "describing what it was about to do" in result.error
+    assert len(provider.requests) == 3  # the original plus two nudges
+
+
+def test_a_greeting_is_not_a_stall():
+    provider = FakeProvider([text_response("Hey! What can I help you with today?")])
+    agent = make_agent(provider)
+    result = agent.run_conversation("hlw")
+
+    assert result.stop_reason == "completed"
+    assert result.final_response == "Hey! What can I help you with today?"
+
+
+def test_let_me_know_is_not_a_promise():
+    provider = FakeProvider([text_response("Revenue was $6,330. Let me know if you need more.")])
+    agent = make_agent(provider)
+    result = agent.run_conversation("total revenue?")
+
+    assert result.final_response.startswith("Revenue was $6,330")
+
+
+def test_a_long_answer_that_opens_with_i_ll_is_left_alone():
+    answer = "I'll walk you through it. " + ("The database holds customer and order data. " * 12)
+    provider = FakeProvider([text_response(answer)])
+    agent = make_agent(provider)
+    result = agent.run_conversation("explain the data")
+
+    assert result.final_response == answer.strip()
+    assert result.iterations == 1
+
+
+def test_a_promise_alongside_a_tool_call_is_not_a_stall():
+    """The normal case: the model narrates *and* calls the tool. It is fine."""
+    registry = ToolRegistry()
+    registry.register(
+        name="run_sql",
+        toolset="sql",
+        schema={"description": "run", "parameters": {"type": "object"}},
+        handler=lambda args, **kw: json.dumps({"rows": [[1]], "result_ref": "tbl_1"}),
+    )
+    provider = FakeProvider([
+        tool_response([("run_sql", {"sql": "SELECT 1"})], text="Let me take a look."),
+        text_response("There is one row."),
+    ])
+    agent = make_agent(provider, registry)
+    result = agent.run_conversation("how many rows?")
+
+    assert result.final_response == "There is one row."
+    assert result.iterations == 2
+    assert len(result.tool_calls) == 1
+
+
+# ------------------------------------------------------------- truncation
+def test_a_truncated_response_is_an_error_not_an_answer():
+    provider = FakeProvider([
+        text_response("Let me take a quick look at the data so I can explain it",
+                      finish_reason="length"),
+    ])
+    agent = make_agent(provider)
+
+    result = agent.run_conversation("explain the data")
+
+    assert result.stop_reason == "truncated_response"
+    assert result.final_response == ""
+    assert "ran out of output budget" in result.error
+
+
+def test_an_empty_response_is_an_error():
+    provider = FakeProvider([text_response("")])
+    agent = make_agent(provider)
+
+    result = agent.run_conversation("explain the data")
+
+    assert result.stop_reason == "empty_response"
+    assert result.final_response == ""
+
+
+# ------------------------------------------------------- serialised tools
+def test_a_mutating_tool_does_not_run_alongside_itself():
+    """Two `add_panel` calls in one batch must not race.
+
+    They would each create the session's dashboard, and one panel would end up
+    in a dashboard of its own.
+    """
+    registry = ToolRegistry()
+    state = {"active": 0, "peak": 0}
+    lock = threading.Lock()
+
+    def handler(args, **kwargs):
+        with lock:
+            state["active"] += 1
+            state["peak"] = max(state["peak"], state["active"])
+        time.sleep(0.05)
+        with lock:
+            state["active"] -= 1
+        return json.dumps({"ok": True})
+
+    registry.register(
+        name="add_panel",
+        toolset="charts",
+        schema={"description": "add", "parameters": {"type": "object"}},
+        handler=handler,
+        parallel_safe=False,
+    )
+    provider = FakeProvider([
+        tool_response([("add_panel", {}), ("add_panel", {}), ("add_panel", {})]),
+        text_response("Three panels added."),
+    ])
+    agent = make_agent(provider, registry)
+    result = agent.run_conversation("build a dashboard")
+
+    assert result.final_response == "Three panels added."
+    assert state["peak"] == 1, "the mutating tool ran alongside itself"
+
+
+def test_read_only_tools_still_run_in_parallel():
+    registry = ToolRegistry()
+
+    def handler(args, **kwargs):
+        time.sleep(0.25)
+        return json.dumps({"ok": True})
+
+    registry.register(
+        name="run_sql",
+        toolset="sql",
+        schema={"description": "run", "parameters": {"type": "object"}},
+        handler=handler,
+    )
+    provider = FakeProvider([
+        tool_response([("run_sql", {}), ("run_sql", {}), ("run_sql", {}), ("run_sql", {})]),
+        text_response("Done."),
+    ])
+    agent = make_agent(provider, registry)
+
+    started = time.monotonic()
+    agent.run_conversation("how many?")
+    elapsed = time.monotonic() - started
+
+    # four reads of a quarter of a second: in parallel, about a quarter second
+    assert elapsed < 0.8, f"the read-only tools did not run in parallel ({elapsed:.2f}s)"
+
+
+def test_add_panel_is_registered_as_not_parallel_safe():
+    from tsql.tools import chart_tools
+
+    entry = chart_tools.registry.get("add_panel")
+    assert entry is not None
+    assert entry.parallel_safe is False

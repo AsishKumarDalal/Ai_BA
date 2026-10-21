@@ -30,11 +30,18 @@
 | Phase 1.5 — security & guardrails | ✅ done — AST guard, PII masking, approval, injection defence |
 | Phase 1.6 — CLI | ✅ done — `tsql doctor/chat/ask/schema/sessions/artifacts/audit/serve` |
 | Phase 2 — `ui/` | ✅ minimal working — chat + dashboard canvas, ChartSpec→Vega-Lite compiler |
-| Phase 3 — eval & red-team harness | ⬜ not started |
+| Phase 3 — eval & red-team harness | 🟡 started — `test/` end-to-end scripts: the live system checked against the database |
 
-**296 harness tests + 14 UI tests passing.** The harness builds a three-panel
-dashboard end to end from a scripted model against a real database, and the UI
-renders it.
+**332 harness tests + 14 UI tests passing.** The harness builds a three-panel
+dashboard end to end against a real database and a live model endpoint, and the
+UI renders it.
+
+The end-to-end scripts in `test/` are the first slice of Phase 3: they drive
+the real endpoint and compare every number in the model's answer with the
+database, because a model answer is only right if the number in it is in the
+database. They found two real bugs — a stalled turn that returned a promise
+instead of an answer, and parallel `add_panel` calls that each created their
+own dashboard.
 
 **Blocked on:** the OpenAI-compatible endpoint details — see [§1.4](#14-model-provider--endpoint-configuration--operator-supplied).
 The endpoint config is read from the environment or a config file, so it can be

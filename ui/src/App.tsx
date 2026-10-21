@@ -62,6 +62,16 @@ export function App() {
               { role: "tool", toolName: "context", detail: "compacted the transcript" },
             ]);
             break;
+          case "nudge":
+            setEntries((current) => [
+              ...current,
+              {
+                role: "tool",
+                toolName: "nudge",
+                detail: "the model stalled; asking it to act",
+              },
+            ]);
+            break;
           case "assistant_text":
             setEntries((current) => [
               ...current,

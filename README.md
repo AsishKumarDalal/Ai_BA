@@ -8,7 +8,8 @@ emits **declarative dashboard artifacts** rather than free-form HTML.
 text_sql/
 ├── plan.md      # the full implementation plan — read this first
 ├── harness/     # Phase 1: the agent runtime (Python)
-└── ui/          # Phase 2: the web client (React + TypeScript)
+├── ui/          # Phase 2: the web client (React + TypeScript)
+└── test/        # end-to-end scripts: the live system, checked against the database
 ```
 
 ## The shape of it
@@ -61,6 +62,19 @@ tsql --db-path /tmp/demo.db serve
 
 Without a model endpoint, `python harness/examples/run_demo_server.py` runs
 the harness with a scripted analyst so the UI can be tried offline.
+
+### The end-to-end tests
+
+```bash
+bash test/run_all.sh    # the live system, checked against the database
+```
+
+The scripts in `test/` drive the real endpoint and compare the results with
+the database, not with a fixed expected string: a model answer is only right
+if the number in it is in the database. They cover tool calling, the dashboard
+(the panels' numbers must add up to the revenue in the database), the stall
+recovery, the SSE API the UI talks to, and the chart compiler that turns a
+panel into Vega-Lite. See [`test/README.md`](test/README.md).
 
 ## Safety
 
