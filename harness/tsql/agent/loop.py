@@ -17,6 +17,7 @@ Design constraints inherited from Hermes, and why they are here:
 
 from __future__ import annotations
 
+import re
 import threading
 from dataclasses import dataclass, field
 from typing import Any, Callable
@@ -58,6 +59,35 @@ class AgentResult:
             "task_id": self.task_id,
             "error": self.error,
         }
+
+
+#: An assistant message that opens with one of these reads as a promise to act
+#: ("Let me take a look…") rather than an answer. If the model returned it with
+#: no tool calls, the turn stalled: it described the work instead of doing it.
+#: "Let me know" is an offer to the user, not a promise, and is excluded.
+_PROMISE_RE = re.compile(
+    r"^(?:#{1,6}\s*)?(?:[-*]\s*)?"
+    r"(?:"
+    r"let me(?!\s+know\b)"
+    r"|i'?ll\b"
+    r"|i will\b"
+    r"|i'?m going to\b"
+    r"|i am going to\b"
+    r"|let'?s\b"
+    r"|first,? (?:i'?ll|let me)"
+    r"|now,? (?:i'?ll|let me)"
+    r"|next,? (?:i'?ll|let me)"
+    r"|to (?:do|answer) (?:that|this),? (?:i'?ll|let me)"
+    r")",
+    re.IGNORECASE,
+)
+
+#: The correction sent back when the model stalls. It has to be blunt: the
+#: failure mode is a polite sentence that sounds like progress.
+_NUDGE = (
+    "You stopped without calling a tool or answering the question. Do not say "
+    "what you are about to do — do it. Call the tool now, then give the answer."
+)
 
 
 class Agent:
@@ -113,6 +143,7 @@ class Agent:
         self._budget = IterationBudget(config.agent.max_iterations)
         self._interrupt = threading.Event()
         self._tool_call_log: list[dict] = []
+        self._nudges = 0
 
     # ------------------------------------------------------------ public API
     def chat(self, message: str) -> str:
@@ -128,6 +159,7 @@ class Agent:
         task_id = task_id or new_task_id()
         self._budget.reset()
         self._tool_call_log = []
+        self._nudges = 0
         self._interrupt.clear()
 
         self.emitter.emit(
@@ -209,24 +241,36 @@ class Agent:
                         })
                     continue
 
-                # No tool calls → this is the final answer.
-                assistant = assistant_message_from_response(response)
-                self._messages.append(assistant)
-                self._persist_assistant(assistant)
-                final_text = assistant.get("content") or ""
+                # No tool calls. This is either the answer, or a turn that
+                # stopped early.
+                final_text = (response.text or "").strip()
 
-                if not final_text.strip():
-                    # A reasoning model can spend its whole output budget
-                    # thinking and leave no answer. Say so rather than
-                    # returning an empty turn.
-                    if response.finish_reason == "length":
-                        message = (
-                            "the model used its whole output budget without producing an "
-                            "answer. Raise `max_tokens`, or set `reasoning_effort` to "
-                            '"none" if the endpoint supports it.'
-                        )
-                    else:
-                        message = "the model returned an empty response."
+                if response.finish_reason == "length":
+                    # The reply was cut off mid-message. Never pass a fragment
+                    # off as the answer: a reasoning model can spend its budget
+                    # thinking and leave only a preamble, which reads exactly
+                    # like an answer and ends the turn with nothing done.
+                    message = (
+                        "the model ran out of output budget before it finished. "
+                        "Raise `max_tokens`, or set `reasoning_effort` to "
+                        '"none" if the endpoint supports it.'
+                    )
+                    self.emitter.emit(
+                        EventType.ERROR, message=message, code="truncated_response"
+                    )
+                    return AgentResult(
+                        final_response="",
+                        messages=list(self._messages),
+                        iterations=self._budget.used,
+                        usage=self._usage,
+                        tool_calls=list(self._tool_call_log),
+                        stop_reason="truncated_response",
+                        task_id=task_id,
+                        error=message,
+                    )
+
+                if not final_text:
+                    message = "the model returned an empty response."
                     self.emitter.emit(EventType.ERROR, message=message,
                                       code="empty_response")
                     return AgentResult(
@@ -239,6 +283,39 @@ class Agent:
                         task_id=task_id,
                         error=message,
                     )
+
+                if not self._tool_call_log and self._is_promise(final_text):
+                    # The model said it would look, and then stopped. Put the
+                    # promise back to it as an instruction to act.
+                    if self._nudges >= self.config.agent.max_nudges:
+                        message = (
+                            "the model kept describing what it was about to do "
+                            "instead of calling a tool. Try asking again, or ask "
+                            "for something narrower."
+                        )
+                        self.emitter.emit(
+                            EventType.ERROR, message=message, code="stalled_turn"
+                        )
+                        return AgentResult(
+                            final_response="",
+                            messages=list(self._messages),
+                            iterations=self._budget.used,
+                            usage=self._usage,
+                            tool_calls=list(self._tool_call_log),
+                            stop_reason="stalled_turn",
+                            task_id=task_id,
+                            error=message,
+                        )
+                    self._nudges += 1
+                    self.emitter.emit(
+                        EventType.NUDGE, attempt=self._nudges, text=final_text
+                    )
+                    self._messages.append({"role": "user", "content": _NUDGE})
+                    continue
+
+                assistant = assistant_message_from_response(response)
+                self._messages.append(assistant)
+                self._persist_assistant(assistant)
 
                 self.emitter.emit(EventType.ASSISTANT_TEXT, text=final_text)
                 return AgentResult(
@@ -276,6 +353,25 @@ class Agent:
         self._interrupt.set()
 
     # -------------------------------------------------------------- internals
+    def _is_promise(self, text: str) -> bool:
+        """True when the message reads as a promise to act rather than an answer.
+
+        "Let me take a look at the data" is a stall when nothing was requested
+        and nothing came back. It is not a stall when it is the opening line of
+        a real answer, so the message has to be short.
+        """
+        candidate = text.strip()
+        if not candidate or len(candidate) > 300 or len(candidate.split()) > 45:
+            return False
+        first_line = next(
+            (line.strip() for line in candidate.splitlines() if line.strip()), ""
+        )
+        if _PROMISE_RE.match(first_line):
+            return True
+        # "Here is what I found:" with nothing after it is the same stall in a
+        # different costume.
+        return candidate.endswith(":") and len(candidate) < 160
+
     def _tool_specs(self) -> list:
         # The context is passed so a tool can declare a runtime requirement
         # ("I need a live database connection") and be hidden when it is absent.

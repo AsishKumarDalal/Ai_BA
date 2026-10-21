@@ -30,6 +30,16 @@ def test_the_prompt_points_at_the_shape_summary():
     assert "mean" in STABLE_SECTION
 
 
+def test_the_prompt_forbids_narrating_instead_of_acting():
+    """A model that narrates and stops is the stall the loop now recovers from.
+
+    The prompt is the first line of defence; the nudge is the second.
+    """
+    assert "Act, don't narrate" in STABLE_SECTION
+    assert "no tool call is not a step forward" in STABLE_SECTION
+    assert "call the tool" in STABLE_SECTION.lower()
+
+
 def test_the_prompt_keeps_the_read_only_rule():
     assert "All database access goes through `run_sql`" in STABLE_SECTION
     assert "never suggest bypassing it" in STABLE_SECTION

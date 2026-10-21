@@ -19,6 +19,7 @@ class EventType:
     TOOL_START = "tool_start"
     TOOL_END = "tool_end"
     TOOL_ERROR = "tool_error"
+    NUDGE = "nudge"
     CONTEXT_COMPRESSION = "context_compression"
     ARTIFACT_CREATED = "artifact_created"
     APPROVAL_REQUIRED = "approval_required"

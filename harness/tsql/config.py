@@ -184,6 +184,9 @@ class AgentConfig:
     max_iterations: int = 60
     parallel_tools: bool = True
     max_parallel_tools: int = 4
+    #: How many times a stalled turn ("Let me take a look…" with no tool call)
+    #: is put back to the model before the stall is reported instead.
+    max_nudges: int = 2
     enabled_toolsets: list[str] | None = None
     disabled_toolsets: list[str] = field(default_factory=list)
     system_prompt_extra: str = ""

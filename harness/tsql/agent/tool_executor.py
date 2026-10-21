@@ -76,14 +76,57 @@ class ToolExecutor:
 
     # ------------------------------------------------------------------ batch
     def execute(self, tool_calls: list[ToolCall], ctx: ToolContext) -> list[ToolResult]:
-        """Execute a batch of tool calls and return results in the original order."""
+        """Execute a batch of tool calls and return results in the original order.
+
+        Read-only tools run concurrently. A tool that mutates shared state
+        (``add_panel`` writing to the session's dashboard) runs on its own, in
+        the order the model asked for it, so two copies of it cannot race.
+        """
         if not tool_calls:
             return []
         if len(tool_calls) == 1 or not self._parallel:
             return [self.execute_one(call, ctx) for call in tool_calls]
-        with ThreadPoolExecutor(max_workers=min(len(tool_calls), self._max_workers)) as pool:
-            futures = [pool.submit(self.execute_one, call, ctx) for call in tool_calls]
-            return [future.result() for future in futures]
+
+        concurrent: list[tuple[int, ToolCall]] = []
+        serial: list[tuple[int, ToolCall]] = []
+        for index, call in enumerate(tool_calls):
+            if self._is_parallel_safe(call):
+                concurrent.append((index, call))
+            else:
+                serial.append((index, call))
+
+        results: dict[int, ToolResult] = {}
+        pool: ThreadPoolExecutor | None = None
+        futures: dict[int, Any] = {}
+        if concurrent:
+            pool = ThreadPoolExecutor(
+                max_workers=min(len(concurrent), self._max_workers)
+            )
+            futures = {
+                index: pool.submit(self.execute_one, call, ctx)
+                for index, call in concurrent
+            }
+        try:
+            # The mutating calls run here, while the read-only ones work.
+            for index, call in serial:
+                results[index] = self.execute_one(call, ctx)
+            for index, future in futures.items():
+                results[index] = future.result()
+        finally:
+            if pool is not None:
+                pool.shutdown(wait=True)
+
+        return [results[index] for index in sorted(results)]
+
+    def _is_parallel_safe(self, call: ToolCall) -> bool:
+        """A call is safe to run alongside others unless its tool says otherwise."""
+        if call.name in self._intercepted:
+            # Intercepted tools keep per-session state on the agent.
+            return False
+        entry = self._registry.get(call.name)
+        if entry is None:
+            return True
+        return entry.parallel_safe
 
     # ------------------------------------------------------------------ single
     def execute_one(self, call: ToolCall, ctx: ToolContext) -> ToolResult:

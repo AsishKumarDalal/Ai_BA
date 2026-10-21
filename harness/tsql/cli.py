@@ -80,6 +80,9 @@ class ConsoleRenderer:
             print(f"  {_paint('⟳', YELLOW)} compressed "
                   f"{event.data.get('messages_before')} → {event.data.get('messages_after')} "
                   f"messages")
+        elif event.type == EventType.NUDGE:
+            print(f"  {_paint('↻', YELLOW)} the model described what it was about to "
+                  f"do and stopped — asking it to act")
 
 
 def _short(value: Any, limit: int = 60) -> str:
