@@ -158,11 +158,23 @@ def cmd_doctor(args: argparse.Namespace) -> int:
                 ProviderRequest(
                     messages=[{"role": "user", "content": "Reply with the single word OK."}],
                     model=config.model.model,
-                    max_tokens=16,
+                    # A reasoning model spends the first part of its budget
+                    # thinking. Ask for enough to leave room for the answer.
+                    max_tokens=min(1024, max(256, config.model.max_tokens // 4)),
                     temperature=0.0,
                 )
             )
-            print(f"  {_paint('✓', GREEN)} live round trip: {response.text.strip()[:60]!r}")
+            answer = (response.text or "").strip()
+            if answer:
+                print(f"  {_paint('✓', GREEN)} live round trip: {answer[:60]!r}")
+            elif response.reasoning:
+                print(f"  {_paint('!', YELLOW)} the model replied but spent its whole "
+                      f"budget thinking — raise max_tokens")
+            else:
+                print(f"  {_paint('✗', RED)} the endpoint answered with no content "
+                      f"(finish_reason: {response.finish_reason})")
+                ok = False
+                model_ok = False
         except Exception as exc:  # noqa: BLE001 - report, do not crash
             print(f"  {_paint('✗', RED)} round trip failed: {exc}")
             ok = False

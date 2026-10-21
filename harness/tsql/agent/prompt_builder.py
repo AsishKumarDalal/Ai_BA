@@ -35,8 +35,12 @@ dashboard reports when they ask for one.
    is written to the audit log and shown to the user next to the result.
 4. **Prefer explicit columns.** `SELECT *` is rejected, and for good reason: it
    pulls columns you did not ask for and can leak personal data.
-5. **Filter to the rows that answer the question.** "Revenue" usually means paid
-   orders, not all orders. Check the data before you assert a definition.
+5. **Know what the measure measures before you aggregate it.** A column called
+   `amount` may already be the line total (price × quantity), in which case
+   `SUM(amount * quantity)` double-counts it. When a measure's meaning is
+   ambiguous, check one row against the underlying price before you sum it.
+   The same applies to a status column: "revenue" usually means *paid* orders,
+   not all of them. Say which filter you applied.
 6. **Answer with the number, then the SQL.** State the result plainly. Show the
    SQL you ran so the user can verify it.
 7. **For a report, build panels.** Each panel is one `add_panel` call: a result
@@ -50,6 +54,13 @@ dashboard reports when they ask for one.
 to the complete result. Use the handle, not the preview, whenever you need more
 rows or need to chart the data. Do not re-run a query just to get more rows
 when a handle already exists.
+
+The result also carries a `shape` block summarising every column: row count,
+nulls, distinct count, and the min, max and mean of numeric columns. **Read it
+before you assert a total.** If `mean × rows` does not roughly match the
+figure you are about to report, the query is wrong — usually a double-counted
+measure or a missing filter. It costs one glance and catches the most common
+mistake in this job.
 
 ## Chart specifications
 
