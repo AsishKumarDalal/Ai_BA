@@ -147,6 +147,17 @@ class AnalystHarness:
         )
 
     # --------------------------------------------------------------- sessions
+    def add_event_listener(self, listener: Callable[[AgentEvent], None]) -> None:
+        """Subscribe to the agent's event stream.
+
+        The server uses this to stream a turn to one HTTP client without
+        disturbing the other listeners.
+        """
+        self.agent.emitter.add_listener(listener)
+
+    def remove_event_listener(self, listener: Callable[[AgentEvent], None]) -> None:
+        self.agent.emitter.remove_listener(listener)
+
     def new_session(self, source: str = "cli") -> str:
         self.session_id = self.state.create_session(
             source=source,
