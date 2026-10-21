@@ -51,8 +51,12 @@ class Policy:
     """Everything the guard and the masker need to make a decision."""
 
     dialect: str = "sqlite"
-    #: Explicit allowlist. ``None`` means "any table that is not denied/system".
+    #: Explicit allowlist. ``None`` means "any table that exists in the database".
     allowed_tables: list[str] | None = None
+    #: The tables that actually exist in the connected database. When
+    #: ``allowed_tables`` is ``None`` these act as the implicit allowlist, so the
+    #: agent cannot query a table that is not there.
+    known_tables: list[str] | None = None
     denied_tables: list[str] = field(default_factory=list)
     forbidden_schemas: frozenset[str] = DEFAULT_FORBIDDEN_SCHEMAS
     max_rows: int = 1_000
@@ -102,16 +106,25 @@ class Policy:
         allowed table is accepted (``public.orders`` when ``orders`` is allowed),
         and so is an unqualified reference to an allowed qualified table. The
         allowlist already names the exact table, so neither direction widens it.
+
+        When there is no explicit allowlist, the tables that *exist in the
+        connected database* are the implicit allowlist. A table that is not
+        there cannot be queried — the model cannot reach a table the user never
+        connected, and it cannot invent one.
         """
         name = table.strip().lower()
         if not name:
             return False
         if name in {t.lower() for t in self.denied_tables}:
             return False
-        if self.allowed_tables is None:
+        if self.allowed_tables is not None:
+            allowed = {t.lower() for t in self.allowed_tables}
+        elif self.known_tables is not None:
+            allowed = {t.lower() for t in self.known_tables}
+        else:
+            # No allowlist and no catalog: fall back to "any non-system table".
             return True
 
-        allowed = {t.lower() for t in self.allowed_tables}
         if name in allowed:
             return True
         base = name.rsplit(".", 1)[-1]
@@ -132,4 +145,8 @@ class Policy:
 
     def allowed_tables_for_prompt(self) -> list[str] | None:
         """The list of table names to show the model (None means 'discover them')."""
-        return list(self.allowed_tables) if self.allowed_tables else None
+        if self.allowed_tables:
+            return list(self.allowed_tables)
+        if self.known_tables is not None:
+            return list(self.known_tables)
+        return None

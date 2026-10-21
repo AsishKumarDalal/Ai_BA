@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ast
 import importlib
+import inspect
 import json
 import logging
 import pkgutil
@@ -123,8 +124,13 @@ class ToolRegistry:
     def toolsets(self) -> set[str]:
         return {entry.toolset for entry in self._tools.values()}
 
-    def available_entries(self) -> list[ToolEntry]:
-        """Entries whose ``check_fn`` passes. Check results are cached per call."""
+    def available_entries(self, context: Any = None) -> list[ToolEntry]:
+        """Entries whose ``check_fn`` passes. Check results are cached per call.
+
+        A ``check_fn`` may take a single argument, in which case it receives the
+        call context — that is how a tool declares "I need a live database
+        connection", which is only knowable at request time.
+        """
         cache: dict[int, bool] = {}
         available: list[ToolEntry] = []
         for entry in self._tools.values():
@@ -133,16 +139,13 @@ class ToolRegistry:
                 continue
             key = id(entry.check_fn)
             if key not in cache:
-                try:
-                    cache[key] = bool(entry.check_fn())
-                except Exception:  # noqa: BLE001 - fail closed
-                    cache[key] = False
+                cache[key] = _call_check(entry.check_fn, context)
             if cache[key]:
                 available.append(entry)
         return available
 
-    def specs(self) -> list[ToolSpec]:
-        return [entry.to_spec() for entry in self.available_entries()]
+    def specs(self, context: Any = None) -> list[ToolSpec]:
+        return [entry.to_spec() for entry in self.available_entries(context)]
 
     # ---------------------------------------------------------------- dispatch
     def dispatch(self, name: str, args: dict, **kwargs: Any) -> str:
@@ -169,6 +172,24 @@ class ToolRegistry:
 
 #: The process-wide registry that ``registry.register(...)`` at module level binds to.
 registry = ToolRegistry()
+
+
+def _call_check(check_fn: CheckFn, context: Any) -> bool:
+    """Call a check function, passing the context when it accepts one.
+
+    An exception means *unavailable* — the check fails safe.
+    """
+    try:
+        if context is not None:
+            try:
+                signature = inspect.signature(check_fn)
+                if len(signature.parameters) >= 1:
+                    return bool(check_fn(context))
+            except (TypeError, ValueError):
+                pass
+        return bool(check_fn())
+    except Exception:  # noqa: BLE001 - fail closed
+        return False
 
 
 def discover_builtin_tools(package: str = "tsql.tools", tools_dir: Path | None = None) -> list[str]:
