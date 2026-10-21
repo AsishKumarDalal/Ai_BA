@@ -1,0 +1,7 @@
+openai>=1.40
+sqlglot>=25.0
+
+# optional database drivers
+duckdb>=1.0
+# psycopg[binary]>=3.1
+# pymysql>=1.1
