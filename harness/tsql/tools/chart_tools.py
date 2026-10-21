@@ -197,7 +197,9 @@ def _resolve_dashboard(
             return existing["id"], payload
 
     for artifact in state.list_artifacts(session_id, kind="dashboard"):
-        payload = artifact.get("payload")
+        # list_artifacts returns summaries, not payloads; fetch the full record.
+        full = state.get_artifact(artifact["id"])
+        payload = (full or {}).get("payload")
         if payload:
             payload.setdefault("panels", [])
             return artifact["id"], payload
